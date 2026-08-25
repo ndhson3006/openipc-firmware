@@ -1,0 +1,93 @@
+#!/bin/sh
+
+case "$1" in
+
+    setup)
+        driver=""
+
+        for card in $(lsusb | awk '{print $6}' | uniq); do
+            case "$card" in
+                "0bda:8812" | \
+                "0bda:881a" | \
+                "0b05:17d2" | \
+                "2357:0101" | \
+                "2604:0012")
+                    driver=8812au
+                    ;;
+
+                "0bda:a81a")
+                    driver=8812eu
+                    ;;
+
+                "0bda:f72b" | \
+                "0bda:b733")
+                    driver=8733bu
+                    ;;
+            esac
+        done
+
+        if [ -z "$driver" ]; then
+            echo "Wireless module not detected!"
+            exit 1
+        fi
+
+        echo "Detected driver: $driver"
+
+        modprobe "$driver"
+
+        if [ $? -ne 0 ]; then
+            echo "Failed to load driver: $driver"
+            exit 1
+        fi
+
+        echo "Driver loaded successfully"
+        ;;
+
+    start)
+        killall -q wpa_supplicant 2>/dev/null
+
+        echo "Starting wpa_supplicant..."
+
+        wpa_supplicant \
+            -B \
+            -i wlan0 \
+            -c /etc/wpa_supplicant.conf
+
+        if [ $? -ne 0 ]; then
+            echo "Failed to start wpa_supplicant"
+            exit 1
+        fi
+
+        echo "wpa_supplicant started"
+
+        echo -n "Waiting for Wi-Fi association: "
+
+        i=0
+        while [ $i -lt 20 ]; do
+            if iw dev wlan0 link 2>/dev/null | grep -q "^Connected"; then
+                echo "OK"
+                exit 0
+            fi
+
+            sleep 1
+            i=$((i + 1))
+        done
+
+        echo "TIMEOUT"
+
+        killall -q wpa_supplicant 2>/dev/null
+
+        exit 1
+        ;;
+
+    stop)
+        killall -q wpa_supplicant 2>/dev/null
+        echo "Wi-Fi stopped"
+        ;;
+
+    *)
+        echo "Usage: $0 {setup|start|stop}"
+        exit 1
+        ;;
+
+esac
