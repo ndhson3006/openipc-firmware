@@ -1,52 +1,49 @@
 #!/bin/sh
-dev=$(fw_printenv -n wlandev)
-mac=$(fw_printenv -n wlanmac)
-net=$(fw_printenv -n netaddr_fallback)
-eth=$(fw_printenv -n ethaddr)
 
-set_wireless() {
-	path=/etc/wireless
-	if $path/usb "$dev" || $path/sdio "$dev"; then
-		[ -n "$mac" ] && ip link set dev wlan0 address "$mac"
-		ifup wlan0
-	elif $path/modem "$dev"; then
-		ifup usb0
-		ifup eth1
-	fi
-	[ -e /sys/class/net/eth0 ] && ifconfig eth0 "${net:-192.168.2.10}" hw ether "${eth:-00:00:23:34:45:66}" up
+WIFI_TIMEOUT=15
+
+check_wlan_up() {
+    ip -4 addr show wlan0 2>/dev/null | grep -q "inet "
 }
 
 start() {
-	echo "Starting network..."
-	ifup lo
-	if [ -n "$dev" ]; then
-		set_wireless
-	else
-		ifup eth0
-	fi
+    echo "Starting network..."
+    ifup lo
+    ifup wlan0
+	
+    i=0
+    while [ $i -lt $WIFI_TIMEOUT ]; do
+        if check_wlan_up; then
+            echo "wlan0 connected, skipping eth0."
+            return 0
+        fi
+        sleep 1
+        i=$((i + 1))
+    done
+
+    echo "wlan0 not connected after ${WIFI_TIMEOUT}s, falling back to eth0."
+    ifup eth0
 }
 
 stop() {
-	echo "Stopping network..."
-	ifdown lo
-	ifdown -f wlan0
-	ifdown -f usb0
-	ifdown -f eth1
-	ifdown -f eth0
+    echo "Stopping network..."
+    ifdown -f eth0 2>/dev/null
+    ifdown -f wlan0
+    ifdown lo
 }
 
 case "$1" in
-	start|stop)
-		$1
-		;;
+start|stop)
+    $1
+    ;;
 
-	restart|reload)
-		stop
-		start
-		;;
+restart|reload)
+    stop
+    start
+    ;;
 
-	*)
-		echo "Usage: $0 {start|stop|restart|reload}"
-		exit 1
-		;;
+*)
+    echo "Usage: $0 {start|stop|restart|reload}"
+    exit 1
+    ;;
 esac
