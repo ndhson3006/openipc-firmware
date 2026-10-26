@@ -1,0 +1,7 @@
+#!/bin/sh
+. "$(dirname "$0")/_common.sh"
+log_call
+
+set_and_reload .outgoing.enabled true
+
+respond_json '{"status":"ok","action":"start"}'
