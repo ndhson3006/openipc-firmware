@@ -1,0 +1,59 @@
+From: Vertex Shot Timer <vertex@localhost>
+Subject: [PATCH] arm: mach-sstar: infinity6e: drive PAD_GPIO13 as power-hold
+
+This board latches its own power rail: after the button is released the SoC has
+to keep PAD_GPIO13 high or the board dies mid-boot.  No kernel code did that,
+so power was held only for as long as the button was physically down.
+
+Assert the pad from a late_initcall with the same gpiolib entry point
+mstar_usb_vbus_control() uses a few hundred lines up in this file.
+gpio_request() on this SoC also switches the pad into GPIO mode
+(camdriver_gpio_request -> MDrv_GPIO_Pad_Set -> HalPadSetVal(idx,
+PINMUX_FOR_GPIO_MODE)), so the level sticks whatever the padmux schematic last
+assigned to the pad, and the boot no longer depends on the U-Boot environment
+having been edited to add "gpio output 112 1" to bootcmd.
+
+late_initcall is required rather than cosmetic.  The sstar,gpio chip is
+registered by camdriver_gpio_init() at postcore_initcall
+(drivers/sstar/gpio/mdrv_gpio_io.c), while .init_machine is reached from
+arch_initcall(customize_machine) in arch/arm/kernel/setup.c -- requesting a GPIO
+from there races chip registration and silently fails.  late_initcall is past
+device_initcall, so the chip is always there.
+
+If the request ever fails the boot still continues: a board whose power hold
+cannot be asserted is a board that needs the button held down, not one that
+should hang before the console.
+
+--- a/arch/arm/mach-sstar/infinity6e/soc.c	2026-10-16 16:42:50.993644523 +0700
++++ b/arch/arm/mach-sstar/infinity6e/soc.c	2026-10-16 16:46:08.856505843 +0700
+@@ -574,6 +574,30 @@
+ 
+ 
+ 
++/*
++ * The board latches its own power on PAD_GPIO13: nothing keeps the rail up
++ * once the button is released unless the SoC drives this pad itself.  U-Boot
++ * does it from bootcmd; the padmux schematic used to take the pad back for
++ * PWM5 at postcore_initcall, which is what the companion patch removes.
++ *
++ * late_initcall because gpio_request() needs the sstar,gpio chip, registered by
++ * camdriver_gpio_init() at postcore_initcall.  .init_machine runs earlier, from
++ * arch_initcall(customize_machine), and would race it.
++ */
++static int __init mstar_power_hold_init(void)
++{
++    if (gpio_request(PAD_GPIO13, "power-hold") < 0) {
++        pr_err("power-hold: cannot request PAD_GPIO13\n");
++        return -EINVAL;
++    }
++
++    gpio_direction_output(PAD_GPIO13, 1);
++    pr_info("power-hold: PAD_GPIO13 driven high\n");
++
++    return 0;
++}
++late_initcall(mstar_power_hold_init);
++
+ extern void mstar_create_MIU_node(void);
+ extern int mstar_pm_init(void);
+ extern void init_proc_zen(void);

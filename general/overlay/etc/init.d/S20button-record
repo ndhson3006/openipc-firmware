@@ -1,0 +1,64 @@
+#!/bin/sh
+DAEMON="button_record_daemon"
+DAEMON_PATH="/usr/bin/$DAEMON"
+GPIO_NUM=6
+GPIO_PATH="/sys/class/gpio/gpio$GPIO_NUM"
+
+setup_gpio() {
+    if [ ! -d "$GPIO_PATH" ]; then
+        echo -n "Exporting gpio$GPIO_NUM: "
+        echo "$GPIO_NUM" > /sys/class/gpio/export 2>/dev/null
+        if [ ! -d "$GPIO_PATH" ]; then
+            echo "FAIL"
+            return 1
+        fi
+        echo "OK"
+    fi
+    echo in > "$GPIO_PATH/direction"
+    echo falling > "$GPIO_PATH/edge"
+}
+
+running() {
+    start-stop-daemon -t -K -q -x "$DAEMON_PATH"
+}
+
+start() {
+    setup_gpio || { echo "gpio setup failed, aborting start"; return 1; }
+    echo -n "Starting $DAEMON: "
+    start-stop-daemon -b -S -q -x "$DAEMON_PATH" -a "$DAEMON"
+    case $? in
+        0) echo "OK"; return 0 ;;
+        1) echo "OK (already running)"; return 0 ;;
+        *) echo "FAIL"; return 1 ;;
+    esac
+}
+
+stop() {
+    echo -n "Stopping $DAEMON: "
+    start-stop-daemon -K -q -x "$DAEMON_PATH"
+    i=0
+    while running && [ $i -lt 10 ]; do
+        i=$((i + 1))
+        sleep 1
+    done
+    if running; then
+        echo "FAIL"
+        return 1
+    fi
+    echo "OK"
+}
+
+case "$1" in
+    start|stop)
+        $1
+        ;;
+    restart)
+        stop || exit 1
+        sleep 1
+        start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac

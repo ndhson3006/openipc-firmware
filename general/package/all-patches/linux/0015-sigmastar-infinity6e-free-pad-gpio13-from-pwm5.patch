@@ -1,0 +1,37 @@
+From: Vertex Shot Timer <vertex@localhost>
+Subject: [PATCH] arm: dts: infinity6e: stop claiming PAD_GPIO13 for PWM5
+
+The QFN padmux schematic assigns PAD_GPIO13 to PWM5.  drivers/sstar/padmux
+applies every schematic entry unconditionally from _mdrv_padmux_dts(), with no
+filter for who asked for the pad, so on a board that uses PAD_GPIO13 as the
+power-hold line the pad was switched out of GPIO mode and back to PWM5 at
+postcore_initcall -- after U-Boot had already driven it high.  The boot log
+shows it:
+
+    [Padmux]reset PAD112(reg 0x103c00:d; mask0x8) t0 PWM5_MODE_1 (org: GPIO)
+
+which is exactly the pad being taken away from the board's power latch.
+
+Comment the entry out, the way the pads this board does not use are already
+handled in the block above it.  Nothing loses PWM5: DrvPWMPadSet() on
+infinity6e is an empty function (its whole body is commented out in
+drivers/sstar/pwm/infinity6e/mhal_pwm.c), and the SoC-wide PWM pad-ctrl in
+infinity6e.dtsi is all PAD_UNKNOWN to begin with, so PWM5 was only ever being
+claimed through this schematic in the first place.
+
+sstar_padmux_resume() replays the same schematic, so removing the entry here
+also stops a suspend/resume cycle from re-taking the pad.
+
+Signed-off-by: Vertex Shot Timer <vertex@localhost>
+---
+--- a/arch/arm/boot/dts/infinity6e-padmux-qfn.dtsi	2026-10-16 16:42:50.991644484 +0700
++++ b/arch/arm/boot/dts/infinity6e-padmux-qfn.dtsi	2026-10-16 16:43:14.618104616 +0700
+@@ -45,7 +45,7 @@
+                 <PAD_GPIO10             PINMUX_FOR_PWM2_MODE_1          MDRV_PUSE_PWM2>,
+                 <PAD_GPIO11             PINMUX_FOR_PWM3_MODE_1          MDRV_PUSE_PWM3>,
+                 <PAD_GPIO12             PINMUX_FOR_PWM4_MODE_1          MDRV_PUSE_PWM4>,
+-                <PAD_GPIO13             PINMUX_FOR_PWM5_MODE_1          MDRV_PUSE_PWM5>,
++                //<PAD_GPIO13             PINMUX_FOR_PWM5_MODE_1          MDRV_PUSE_PWM5>,
+                 <PAD_GPIO14             PINMUX_FOR_PWM6_MODE_1          MDRV_PUSE_PWM6>,
+                 <PAD_GPIO15             PINMUX_FOR_PWM7_MODE_1          MDRV_PUSE_PWM7>,
+                 <PAD_PM_GPIO9           PINMUX_FOR_PWM9_MODE_1          MDRV_PUSE_PWM9>,
